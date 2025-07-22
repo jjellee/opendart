@@ -25,12 +25,22 @@ def sort_period_columns(cols):
     prefixes = []
     for c in dt_cols:
         prefix = c.rsplit('_', 2)[0]  # e.g. 2018_1분기
-        year, q = prefix.split('_', 1)
-        rank = order_rank.get(q, 99)
-        prefixes.append((int(year), rank, prefix))
+        try:
+            # prefix가 YYYY_분기 형식인지 확인
+            parts = prefix.split('_')
+            if len(parts) >= 2:
+                year_part = parts[0]
+                quarter_part = '_'.join(parts[1:])  # 나머지를 분기명으로 처리
+                year = int(year_part)  # 연도가 숫자인지 확인
+                rank = order_rank.get(quarter_part, 99)
+                prefixes.append((year, rank, prefix))
+        except (ValueError, IndexError):
+            # 연도가 숫자가 아니거나 형식이 맞지 않으면 스킵
+            print(f"[경고] 컬럼명 형식이 예상과 다름: {c}")
+            continue
     prefixes.sort()
     ordered_cols = []
-    for _, __, p in prefixes:
+    for _, _, p in prefixes:
         ordered_cols.extend([
             f"{p}_thstrm_dt",
             f"{p}_thstrm_amount",
@@ -42,10 +52,19 @@ PERIOD_DIR = "dart_financial_data"
 OUTPUT_DIR_COMPANY = "dart_financial_data_by_company"
 
 def append_to_company_files():
-    # 새 네이밍: <회사명>_<YEAR>_<REPORTNAME>_major_accounts.xlsx
-    files = glob.glob(os.path.join(PERIOD_DIR, "*_major_accounts.xlsx"))
-    # Excel 임시 파일 (~$로 시작하는 파일) 제외
-    files = [f for f in files if not os.path.basename(f).startswith('~$')]
+    # 회사별 폴더에서 파일들을 탐색: <회사폴더>/<YEAR>_<REPORTNAME>_major_accounts.xlsx
+    files = []
+    
+    # dart_financial_data 폴더 내의 모든 회사 폴더를 탐색
+    if os.path.exists(PERIOD_DIR):
+        for company_folder in os.listdir(PERIOD_DIR):
+            company_path = os.path.join(PERIOD_DIR, company_folder)
+            if os.path.isdir(company_path):
+                # 각 회사 폴더 내의 엑셀 파일들을 찾기
+                company_files = glob.glob(os.path.join(company_path, "*_major_accounts.xlsx"))
+                # Excel 임시 파일 (~$로 시작하는 파일) 제외
+                company_files = [f for f in company_files if not os.path.basename(f).startswith('~$')]
+                files.extend(company_files)
     
     # 사업보고서를 마지막에 처리하도록 정렬
     annual_reports = [f for f in files if '_사업보고서_' in f]
@@ -55,14 +74,14 @@ def append_to_company_files():
     key_cols = ['회사명', '고유번호', 'stock_code', 'fs_nm', 'sj_nm', 'account_nm']
 
     for f in files:
-        basename = os.path.basename(f).replace(".xlsx", "")  # 이수페타시스_2023_3분기_major_accounts
+        basename = os.path.basename(f).replace(".xlsx", "")  # 2023_3분기_major_accounts
         parts = basename.split("_")
-        # 마지막 두 토큰은 'major', 'accounts', 그 앞이 REPORTNAME, 그앞이 YEAR
-        if len(parts) < 4:
+        # 새 파일명 형식: <YEAR>_<REPORTNAME>_major_accounts
+        if len(parts) < 3:
             print(f"[건너뜀] 파일명 형식이 예상과 다름: {basename}")
             continue
-        year = parts[-4]
-        report_name = parts[-3]
+        year = parts[0]
+        report_name = parts[1]
         period_prefix = f"{year}_{report_name}"  # 예: 2023_3분기
 
         period_df = pd.read_excel(f, engine='openpyxl')

@@ -21,17 +21,13 @@ OUTPUT_DIR = "dart_financial_data"
 # 대상 회사 목록이 저장된 엑셀 파일
 CORP_CODES_FILE = "corp_codes_전체.xlsx"
 
-'''
 # 조회할 대상 회사명 리스트
 TARGET_COMPANIES = [
     "달바글로벌", "파마리서치", "대웅제약", "노바렉스", "원텍",
     "클래시스", "아이센스", "빙그레", "삼양식품", "비엠티",
     "코미코", "한미반도체", "에스앤에스텍", "티에스이",
     "리노공업", "이수페타시스", "HD현대일렉트릭", "엘에스일렉트릭",
-    "삼성바이오로직스", "휴젤"
-]
-'''
-TARGET_COMPANIES = [ "이수페타시스"
+    "삼성바이오로직스", "휴젤", "유니드"
 ]
 
 # --- API 정보 ---
@@ -195,11 +191,17 @@ def run_batch_fetch():
                 corp_name = row['corp_name']
                 stock_code = row.get('stock_code', '')
 
-                # 회사별 파일명: <회사명>_<year>_<report_name>_major_accounts.xlsx
+                # 회사별 폴더 및 파일명 생성
                 safe_corp_name = "".join(ch if ch.isalnum() else "_" for ch in corp_name)
+                company_dir = os.path.join(OUTPUT_DIR, safe_corp_name)
+                
+                # 회사별 폴더 생성
+                if not os.path.exists(company_dir):
+                    os.makedirs(company_dir)
+                
                 output_filename = os.path.join(
-                    OUTPUT_DIR,
-                    f"{safe_corp_name}_{year}_{report_name}_major_accounts.xlsx"
+                    company_dir,
+                    f"{year}_{report_name}_major_accounts.xlsx"
                 )
                 if os.path.exists(output_filename):
                     print(f"  ({index + 1}/{len(corp_df)}) {corp_name} ({corp_code}) -> 이미 존재, 스킵")

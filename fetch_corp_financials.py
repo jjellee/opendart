@@ -27,7 +27,7 @@ TARGET_COMPANIES = [
     "클래시스", "아이센스", "빙그레", "삼양식품", "비엠티",
     "코미코", "한미반도체", "에스앤에스텍", "티에스이",
     "리노공업", "이수페타시스", "HD현대일렉트릭", "엘에스일렉트릭",
-    "삼성바이오로직스", "휴젤", "유니드"
+    "삼성바이오로직스", "휴젤", "유니드", "HD현대마린엔진", "한화엔진", "STX엔진"
 ]
 
 # --- API 정보 ---
@@ -159,7 +159,7 @@ def run_batch_fetch():
 
     # 지정된 기업만 필터링
     original_cnt = len(corp_df)
-    corp_df = corp_df[corp_df['corp_name'].isin(TARGET_COMPANIES)].copy()
+    #corp_df = corp_df[corp_df['corp_name'].isin(TARGET_COMPANIES)].copy()
     if corp_df.empty:
         print("대상 회사 리스트에 해당하는 기업이 엑셀에 없습니다. 프로그램을 종료합니다.")
         return
@@ -174,40 +174,44 @@ def run_batch_fetch():
         '사업보고서': '11011'
     }
 
-    # 3. 기간별로 반복하며 데이터 조회 및 저장
-    for year in years:
-        for report_name, report_code in report_codes.items():
-            # 2025년은 1분기까지만 조회
-            if year == 2025 and report_code != report_codes['1분기']:
-                continue
+    # 3. 회사별로 반복하며 데이터 조회 및 저장
+    # stock_code가 존재하는 회사만 필터링
+    corp_df_with_stock = corp_df[corp_df['stock_code'].notna() & (corp_df['stock_code'] != '')].copy()
+    print(f"stock_code가 있는 회사: {len(corp_df_with_stock):,}개\n")
+    
+    for index, row in corp_df_with_stock.iterrows():
+        corp_code = row['corp_code']
+        corp_name = row['corp_name']
+        stock_code = row.get('stock_code', '')
 
-            print(f"\n{'='*60}")
-            print(f"▶ 작업 시작: {year}년 {report_name}")
-            print(f"{'='*60}")
+        print(f"\n{'='*60}")
+        print(f"▶ 회사 처리 시작: ({index + 1}/{len(corp_df_with_stock)}) {corp_name} ({corp_code})")
+        print(f"{'='*60}")
 
-            # 각 기간별로 모든 상장사에 대해 API 호출
-            for index, row in corp_df.iterrows():
-                corp_code = row['corp_code']
-                corp_name = row['corp_name']
-                stock_code = row.get('stock_code', '')
+        # 회사별 폴더 및 파일명 생성
+        safe_corp_name = "".join(ch if ch.isalnum() else "_" for ch in corp_name)
+        company_dir = os.path.join(OUTPUT_DIR, safe_corp_name)
+        
+        # 회사별 폴더 생성
+        if not os.path.exists(company_dir):
+            os.makedirs(company_dir)
 
-                # 회사별 폴더 및 파일명 생성
-                safe_corp_name = "".join(ch if ch.isalnum() else "_" for ch in corp_name)
-                company_dir = os.path.join(OUTPUT_DIR, safe_corp_name)
-                
-                # 회사별 폴더 생성
-                if not os.path.exists(company_dir):
-                    os.makedirs(company_dir)
-                
+        # 각 회사에 대해 모든 기간 조회
+        for year in years:
+            for report_name, report_code in report_codes.items():
+                # 2025년은 1분기까지만 조회
+                if year == 2025 and report_code != report_codes['1분기']:
+                    continue
+
                 output_filename = os.path.join(
                     company_dir,
                     f"{year}_{report_name}_major_accounts.xlsx"
                 )
                 if os.path.exists(output_filename):
-                    print(f"  ({index + 1}/{len(corp_df)}) {corp_name} ({corp_code}) -> 이미 존재, 스킵")
+                    print(f"  {year}년 {report_name} -> 이미 존재, 스킵")
                     continue
 
-                print(f"  ({index + 1}/{len(corp_df)}) {corp_name} ({corp_code}) 조회 중...")
+                print(f"  {year}년 {report_name} 조회 중...")
 
                 params = {
                     'crtfc_key': config.API_KEY,
@@ -223,7 +227,6 @@ def run_batch_fetch():
                     data = response.json()
 
                     if data.get('status') == '000':
-                        # print(" -> 성공")
                         account_list = data.get('list', [])
                         for item in account_list:
                             item['회사명'] = corp_name
@@ -234,21 +237,52 @@ def run_batch_fetch():
                                 pd.DataFrame(account_list).to_excel(
                                     output_filename, index=False, engine='openpyxl'
                                 )
-                                print(" -> 저장 완료")
+                                print("    -> 저장 완료")
                             except Exception as e:
-                                print(f" -> 저장 오류: {e}")
+                                print(f"    -> 저장 오류: {e}")
                         else:
-                            print(" -> 데이터 없음")
+                            # 데이터가 없어도 빈 파일 생성
+                            print("    -> 데이터 없음 (빈 파일 생성)")
+                            empty_df = pd.DataFrame([{
+                                '회사명': corp_name,
+                                '고유번호': corp_code,
+                                'stock_code': stock_code,
+                                'status': 'NO_DATA',
+                                'message': '조회된 데이터가 없습니다',
+                                'year': year,
+                                'report_name': report_name
+                            }])
+                            empty_df.to_excel(output_filename, index=False, engine='openpyxl')
                     elif data.get('status') == '013':
-                        print(" -> 데이터 없음")
+                        # 데이터가 없어도 빈 파일 생성
+                        print("    -> 데이터 없음 (빈 파일 생성)")
+                        empty_df = pd.DataFrame([{
+                            '회사명': corp_name,
+                            '고유번호': corp_code,
+                            'stock_code': stock_code,
+                            'status': 'NO_DATA',
+                            'message': '조회된 데이터가 없습니다',
+                            'year': year,
+                            'report_name': report_name
+                        }])
+                        empty_df.to_excel(output_filename, index=False, engine='openpyxl')
                     else:
-                        print(f" -> 오류 ({data.get('status', 'N/A')}: {data.get('message', 'N/A')})")
+                        error_status = data.get('status', 'N/A')
+                        error_message = data.get('message', 'N/A')
+                        print(f"    -> 오류 ({error_status}: {error_message})")
+                        
+                        # 사용한도 초과 오류 처리
+                        if error_status == '020' or '사용한도를 초과하였습니다' in error_message:
+                            print("\n⚠️  API 사용한도를 초과하였습니다. 프로그램을 종료합니다.")
+                            return
                 except requests.exceptions.RequestException as e:
-                    print(f" -> 네트워크 오류: {e}")
+                    print(f"    -> 네트워크 오류: {e}")
                 except Exception as e:
-                    print(f" -> 알 수 없는 오류: {e}")
+                    print(f"    -> 알 수 없는 오류: {e}")
                 
                 time.sleep(0.15)  # DART 서버 부하 방지를 위한 지연
+        
+        print(f"▶ {corp_name} 회사 처리 완료")
 
     print("\n\n🎉 모든 기간에 대한 작업이 완료되었습니다.")
 

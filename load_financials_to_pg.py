@@ -109,10 +109,17 @@ def upsert_fin_value(corp_code, acc_id, rep_id, amount, currency):
     """
     # Convert amount string to float, removing commas
     if pd.isna(amount):
-        amount_val = 0.0
+        amount_val = None
     else:
-        amount_str = str(amount).replace(',', '')
-        amount_val = float(amount_str)
+        amount_str = str(amount).replace(',', '').strip()
+        if amount_str == '-' or amount_str == '':
+            amount_val = None
+        else:
+            try:
+                amount_val = float(amount_str)
+            except ValueError:
+                print(f"[경고] 숫자로 변환할 수 없는 값: '{amount_str}'")
+                amount_val = None
     
     with engine.begin() as conn:
         conn.execute(text(sql), {"corp": int(corp_code), "acc": int(acc_id),

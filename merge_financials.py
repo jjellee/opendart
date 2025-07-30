@@ -74,6 +74,7 @@ def append_to_company_files():
     key_cols = ['회사명', '고유번호', 'stock_code', 'fs_nm', 'sj_nm', 'account_nm']
 
     for f in files:
+        print(f"\n[파일 읽기 시작] {f}")
         basename = os.path.basename(f).replace(".xlsx", "")  # 2023_3분기_major_accounts
         parts = basename.split("_")
         # 새 파일명 형식: <YEAR>_<REPORTNAME>_major_accounts
@@ -84,9 +85,22 @@ def append_to_company_files():
         report_name = parts[1]
         period_prefix = f"{year}_{report_name}"  # 예: 2023_3분기
 
-        period_df = pd.read_excel(f, engine='openpyxl')
+        try:
+            period_df = pd.read_excel(f, engine='openpyxl')
+            print(f"[파일 읽기 성공] {f}")
+        except Exception as e:
+            print(f"[파일 읽기 실패] {f}")
+            print(f"[에러 내용] {type(e).__name__}: {e}")
+            continue
+        # 필요한 컬럼이 모두 있는지 확인
+        required_cols = key_cols + ['thstrm_dt', 'thstrm_amount', 'currency']
+        missing_cols = [col for col in required_cols if col not in period_df.columns]
+        if missing_cols:
+            print(f"[건너뜀] 필요한 컬럼이 없음: {missing_cols}")
+            continue
+        
         # 필요한 컬럼만, 새 컬럼명으로
-        df = period_df[key_cols + ['thstrm_dt', 'thstrm_amount', 'currency']].copy()
+        df = period_df[required_cols].copy()
         # 이번 분기의 날짜 값을 기록해 두었다가 중복 여부를 판단한다
         period_dt_val = str(df['thstrm_dt'].iloc[0])
         df.rename(columns={
@@ -104,7 +118,14 @@ def append_to_company_files():
             comp_file = os.path.join(OUTPUT_DIR_COMPANY, f"{corp_name}_{corp_code}.xlsx")
 
             if os.path.exists(comp_file):
-                base = pd.read_excel(comp_file, engine='openpyxl')
+                print(f"  [회사 파일 읽기 시작] {comp_file}")
+                try:
+                    base = pd.read_excel(comp_file, engine='openpyxl')
+                    print(f"  [회사 파일 읽기 성공] {comp_file}")
+                except Exception as e:
+                    print(f"  [회사 파일 읽기 실패] {comp_file}")
+                    print(f"  [에러 내용] {type(e).__name__}: {e}")
+                    continue
                 for col in key_cols:
                     base[col] = base[col].astype(str)
 

@@ -2,6 +2,7 @@
 
 import os, glob
 import pandas as pd
+import config
 
 def to_float(value):
     """콤마가 포함된 문자열을 float으로 변환"""
@@ -16,14 +17,14 @@ def to_float(value):
 # ---- Helper: 기간 컬럼 정렬 함수 ----
 def sort_period_columns(cols):
     """
-    주어진 컬럼 리스트에서 *_thstrm_dt / *_thstrm_amount / *_thstrm_currency 트리플을
+    주어진 컬럼 리스트에서 *_thstrm_amount / *_thstrm_currency 페어를
     '년도 + 분기' 시간순(1분기→반기→3분기→사업보고서)으로 정렬한 리스트를 반환.
     key_cols, currency 등은 제외하고 prefix 기반으로만 정렬.
     """
     order_rank = {'1분기': 0, '반기': 1, '2분기': 1, '3분기': 2, '사업보고서': 3, '4분기': 3}
-    dt_cols = [c for c in cols if c.endswith('_thstrm_dt')]
+    amount_cols = [c for c in cols if c.endswith('_thstrm_amount')]
     prefixes = []
-    for c in dt_cols:
+    for c in amount_cols:
         prefix = c.rsplit('_', 2)[0]  # e.g. 2018_1분기
         try:
             # prefix가 YYYY_분기 형식인지 확인
@@ -42,7 +43,6 @@ def sort_period_columns(cols):
     ordered_cols = []
     for _, _, p in prefixes:
         ordered_cols.extend([
-            f"{p}_thstrm_dt",
             f"{p}_thstrm_amount",
             f"{p}_thstrm_currency",
         ])
@@ -55,16 +55,55 @@ def append_to_company_files():
     # 회사별 폴더에서 파일들을 탐색: <회사폴더>/<YEAR>_<REPORTNAME>_major_accounts.xlsx
     files = []
     
+    # 기간 필터링을 위한 변수
+    quarter_map = {'1분기': 1, '반기': 2, '3분기': 3, '사업보고서': 4}
+    
     # dart_financial_data 폴더 내의 모든 회사 폴더를 탐색
     if os.path.exists(PERIOD_DIR):
         for company_folder in os.listdir(PERIOD_DIR):
             company_path = os.path.join(PERIOD_DIR, company_folder)
             if os.path.isdir(company_path):
+                # TARGET_COMPANIES 필터링
+                if config.TARGET_COMPANIES:
+                    # 폴더명에서 회사명 추출 (언더스코어로 구분된 회사명)
+                    company_name = company_folder.replace('_', '')
+                    # TARGET_COMPANIES에 있는 회사만 처리
+                    if not any(target.replace(' ', '') in company_name for target in config.TARGET_COMPANIES):
+                        continue
+                
                 # 각 회사 폴더 내의 엑셀 파일들을 찾기
                 company_files = glob.glob(os.path.join(company_path, "*_major_accounts.xlsx"))
                 # Excel 임시 파일 (~$로 시작하는 파일) 제외
                 company_files = [f for f in company_files if not os.path.basename(f).startswith('~$')]
-                files.extend(company_files)
+                
+                # 기간 필터링
+                filtered_files = []
+                for f in company_files:
+                    basename = os.path.basename(f)
+                    parts = basename.split('_')
+                    if len(parts) >= 2:
+                        try:
+                            year = int(parts[0])
+                            report_name = parts[1]
+                            quarter_num = quarter_map.get(report_name, 0)
+                            
+                            # 시작 기간 체크
+                            if year < config.START_YEAR:
+                                continue
+                            if year == config.START_YEAR and quarter_num < config.START_QUARTER:
+                                continue
+                            
+                            # 종료 기간 체크
+                            if year > config.END_YEAR:
+                                continue
+                            if year == config.END_YEAR and quarter_num > config.END_QUARTER:
+                                continue
+                            
+                            filtered_files.append(f)
+                        except ValueError:
+                            continue
+                
+                files.extend(filtered_files)
     
     # 사업보고서를 마지막에 처리하도록 정렬
     annual_reports = [f for f in files if '_사업보고서_' in f]
@@ -93,7 +132,7 @@ def append_to_company_files():
             print(f"[에러 내용] {type(e).__name__}: {e}")
             continue
         # 필요한 컬럼이 모두 있는지 확인
-        required_cols = key_cols + ['thstrm_dt', 'thstrm_amount', 'currency']
+        required_cols = key_cols + ['thstrm_amount', 'currency']
         missing_cols = [col for col in required_cols if col not in period_df.columns]
         if missing_cols:
             print(f"[건너뜀] 필요한 컬럼이 없음: {missing_cols}")
@@ -101,10 +140,7 @@ def append_to_company_files():
         
         # 필요한 컬럼만, 새 컬럼명으로
         df = period_df[required_cols].copy()
-        # 이번 분기의 날짜 값을 기록해 두었다가 중복 여부를 판단한다
-        period_dt_val = str(df['thstrm_dt'].iloc[0])
         df.rename(columns={
-            'thstrm_dt': f"{period_prefix}_thstrm_dt",
             'thstrm_amount': f"{period_prefix}_thstrm_amount",
             'currency': f"{period_prefix}_thstrm_currency",
         }, inplace=True)
@@ -133,16 +169,12 @@ def append_to_company_files():
                 if 'currency' in base.columns:
                     base = base.drop(columns=['currency'])
 
-                # 이미 같은 날짜(thstrm_dt)가 저장돼 있으면 스킵
-                dt_cols = [c for c in base.columns if c.endswith('_thstrm_dt')]
-                existing_dates = set()
-                for c in dt_cols:
-                    existing_dates.update(base[c].dropna().astype(str).unique())
-                if period_dt_val in existing_dates:
-                    continue
-                # 혹시 같은 prefix(연도_분기) 컬럼이 이미 있으면 스킵
+                # 같은 prefix(연도_분기) 컬럼이 이미 있으면 업데이트
                 if f"{period_prefix}_thstrm_amount" in base.columns:
-                    continue
+                    print(f"  [업데이트] {period_prefix} 데이터를 업데이트합니다.")
+                    # 기존 해당 기간 컬럼들을 삭제
+                    cols_to_drop = [col for col in base.columns if col.startswith(f"{period_prefix}_")]
+                    base = base.drop(columns=cols_to_drop)
 
                 merged = pd.merge(base, g, on=key_cols, how='outer')
             else:
@@ -196,7 +228,7 @@ def append_to_company_files():
                                 except (ValueError, TypeError) as e:
                                     print(f"[DEBUG] 계산 오류 - {account_nm}: {e}")
 
-            # ---- 컬럼 정렬: key_cols + 기간별(dt/amount/currency) ----
+            # ---- 컬럼 정렬: key_cols + 기간별(amount/currency) ----
             period_cols_ordered = sort_period_columns(merged.columns)
             other_cols = [c for c in merged.columns if c in key_cols]
             final_cols = other_cols + period_cols_ordered

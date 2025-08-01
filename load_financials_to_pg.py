@@ -4,6 +4,7 @@ import pandas as pd
 from sqlalchemy import create_engine, text
 from dotenv import load_dotenv
 import zipfile
+import config
 
 load_dotenv()  # PGHOST, PGPORT, PGUSER, PGPASSWORD, PGDATABASE
 
@@ -69,34 +70,16 @@ def get_or_create_account(fs_nm, sj_nm, account_nm):
     """
     return fetch_one(sql_ins, fs=fs_nm, sj=sj_nm, acc=account_nm)
 
-def get_or_create_report(year, quarter, report_name, period_dt):
-    # Parse date from period_dt string like "2018.01.01 ~ 2018.03.31" or "2018-03-31 현재"
-    # Take the start date if it's a range
-    if pd.isna(period_dt):
-        period_date = f"{year}-01-01"  # Default to year start if no date
-    else:
-        period_str = str(period_dt)
-        if '~' in period_str:
-            period_date = period_str.split('~')[0].strip()
-        else:
-            period_date = period_str
-        
-        # Extract date pattern using regex (YYYY.MM.DD or YYYY-MM-DD)
-        date_match = re.search(r'(\d{4})[.-](\d{2})[.-](\d{2})', period_date)
-        if date_match:
-            period_date = f"{date_match.group(1)}-{date_match.group(2)}-{date_match.group(3)}"
-        else:
-            period_date = f"{year}-01-01"  # Default fallback
-    
+def get_or_create_report(year, quarter, report_name):
     sql_upsert = """
-    INSERT INTO opendart.reports(year, quarter, report_name, period_dt)
-    VALUES (:yr, :qtr, :rname, :pdt)
-    ON CONFLICT (year, quarter, period_dt) DO UPDATE
+    INSERT INTO opendart.reports(year, quarter, report_name)
+    VALUES (:yr, :qtr, :rname)
+    ON CONFLICT (year, quarter) DO UPDATE
         SET report_name = EXCLUDED.report_name
     RETURNING report_id
     """
     return fetch_one(sql_upsert, yr=int(year), qtr=str(quarter),
-                     rname=str(report_name), pdt=period_date)
+                     rname=str(report_name))
 
 def upsert_fin_value(corp_code, acc_id, rep_id, amount, currency):
     sql = """
@@ -133,6 +116,19 @@ def parse_period(col_prefix):
     year, q_kor = col_prefix.split("_", 1)
     return int(year), q_kor, Q_KOR_TO_STD.get(q_kor, q_kor)
 
+# ---------- TARGET_COMPANIES 필터링 ----------
+if config.TARGET_COMPANIES:
+    filtered_paths = []
+    for path in file_paths:
+        fname = os.path.basename(path)
+        # 파일명에서 회사명 추출 (회사명_고유번호.xlsx 형식)
+        if any(target in fname for target in config.TARGET_COMPANIES):
+            filtered_paths.append(path)
+    file_paths = filtered_paths
+    print(f"TARGET_COMPANIES 필터링: {len(file_paths)}개 파일 처리")
+
+print(f"\n처리할 기간: {config.START_YEAR} Q{config.START_QUARTER} ~ {config.END_YEAR} Q{config.END_QUARTER}")
+
 # ---------- 메인 루프 ----------
 for path in file_paths:
     fname = os.path.basename(path)
@@ -153,10 +149,10 @@ for path in file_paths:
     # key 컬럼
     id_cols = ['회사명', '고유번호', 'stock_code', 'fs_nm', 'sj_nm', 'account_nm']
 
-    # 모든 기간별 3중 컬럼 prefix 파악
+    # 모든 기간별 2중 컬럼 prefix 파악
     triples = {}
     for c in df.columns:
-        m = re.match(r"(\d{4}_.+)_thstrm_(dt|amount|currency)", c)
+        m = re.match(r"(\d{4}_.+)_thstrm_(amount|currency)", c)
         if m:
             prefix, kind = m.groups()
             triples.setdefault(prefix, {})[kind] = c
@@ -185,8 +181,24 @@ for path in file_paths:
         # 각 기간별 값 삽입
         for prefix, parts in triples.items():
             year, q_kor, q_std = parse_period(prefix)
-            rep_id = get_or_create_report(year, q_std, q_kor,
-                                          one[parts['dt']])
+            
+            # 기간 필터링 적용
+            quarter_num_map = {'1Q': 1, '2Q': 2, '3Q': 3, '4Q': 4}
+            quarter_num = quarter_num_map.get(q_std, 0)
+            
+            # 시작 기간 체크
+            if year < config.START_YEAR:
+                continue
+            if year == config.START_YEAR and quarter_num < config.START_QUARTER:
+                continue
+            
+            # 종료 기간 체크
+            if year > config.END_YEAR:
+                continue
+            if year == config.END_YEAR and quarter_num > config.END_QUARTER:
+                continue
+            
+            rep_id = get_or_create_report(year, q_std, q_kor)
 
             amount = one[parts['amount']]
             currency = one[parts['currency']]

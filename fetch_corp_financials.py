@@ -21,15 +21,6 @@ OUTPUT_DIR = "dart_financial_data"
 # 대상 회사 목록이 저장된 엑셀 파일
 CORP_CODES_FILE = "corp_codes_전체.xlsx"
 
-# 조회할 대상 회사명 리스트
-TARGET_COMPANIES = [
-    "달바글로벌", "파마리서치", "대웅제약", "노바렉스", "원텍",
-    "클래시스", "아이센스", "빙그레", "삼양식품", "비엠티",
-    "코미코", "한미반도체", "에스앤에스텍", "티에스이",
-    "리노공업", "이수페타시스", "HD현대일렉트릭", "엘에스일렉트릭",
-    "삼성바이오로직스", "휴젤", "유니드", "HD현대마린엔진", "한화엔진", "STX엔진"
-]
-
 # --- API 정보 ---
 CORP_CODE_URL = "https://opendart.fss.or.kr/api/corpCode.xml"
 ACCOUNTS_URL = "https://opendart.fss.or.kr/api/fnlttSinglAcnt.json"
@@ -159,14 +150,19 @@ def run_batch_fetch():
 
     # 지정된 기업만 필터링
     original_cnt = len(corp_df)
-    #corp_df = corp_df[corp_df['corp_name'].isin(TARGET_COMPANIES)].copy()
-    if corp_df.empty:
-        print("대상 회사 리스트에 해당하는 기업이 엑셀에 없습니다. 프로그램을 종료합니다.")
-        return
-    print(f"필터 전 {original_cnt:,}개 → 필터 후 {len(corp_df):,}개 기업을 대상으로 조회를 시작합니다.")
+    
+    # TARGET_COMPANIES가 비어있지 않으면 해당 기업만 필터링
+    if config.TARGET_COMPANIES:
+        corp_df = corp_df[corp_df['corp_name'].isin(config.TARGET_COMPANIES)].copy()
+        if corp_df.empty:
+            print("대상 회사 리스트에 해당하는 기업이 엑셀에 없습니다. 프로그램을 종료합니다.")
+            return
+        print(f"필터 전 {original_cnt:,}개 → TARGET_COMPANIES 필터 후 {len(corp_df):,}개 기업을 대상으로 조회를 시작합니다.")
+    else:
+        print(f"전체 {len(corp_df):,}개 기업을 대상으로 조회를 시작합니다.")
 
-    # 2. 조회할 기간 설정 (2018년 ~ 2025년)
-    years = range(2018, 2026)
+    # 2. 조회할 기간 설정 (config에서 가져옴)
+    years = range(config.START_YEAR, config.END_YEAR + 1)
     report_codes = {
         '1분기': '11013',
         '반기': '11012',
@@ -199,9 +195,18 @@ def run_batch_fetch():
         # 각 회사에 대해 모든 기간 조회
         for year in years:
             for report_name, report_code in report_codes.items():
-                # 2025년은 1분기까지만 조회
-                if year == 2025 and report_code != report_codes['1분기']:
-                    continue
+                # 시작 기간 필터링
+                if year == config.START_YEAR:
+                    quarter_num = {'1분기': 1, '반기': 2, '3분기': 3, '사업보고서': 4}[report_name]
+                    if quarter_num < config.START_QUARTER:
+                        continue
+                
+                # 종료 기간 필터링
+                if year == config.END_YEAR:
+                    quarter_num = {'1분기': 1, '반기': 2, '3분기': 3, '사업보고서': 4}[report_name]
+                    if quarter_num > config.END_QUARTER:
+                        continue
+                
 
                 output_filename = os.path.join(
                     company_dir,

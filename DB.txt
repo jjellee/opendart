@@ -1,0 +1,31 @@
+CREATE TABLE companies (
+  corp_code   VARCHAR(8)   PRIMARY KEY,
+  company_name TEXT        NOT NULL,
+  stock_code  VARCHAR(6)
+);
+
+CREATE TABLE reports (
+  report_id   SERIAL       PRIMARY KEY,
+  year        SMALLINT     NOT NULL,
+  -- quarter = 1Q | Half | 3Q | Annual  (반기=Half, 사업보고서=Annual)
+  quarter     TEXT         NOT NULL,
+  report_name TEXT         NOT NULL,  -- 원문(‘1분기’, ‘반기’, …) 보존
+  UNIQUE (year, quarter)
+);
+
+CREATE TABLE accounts (
+  account_id  SERIAL PRIMARY KEY,
+  fs_nm       TEXT,         -- 재무제표명(‘재무상태표’ 등)
+  sj_nm       TEXT,         -- 서브제목
+  account_nm  TEXT NOT NULL,
+  UNIQUE (fs_nm, sj_nm, account_nm)
+);
+
+CREATE TABLE fin_values (
+  corp_code   VARCHAR(8)  REFERENCES companies(corp_code),
+  account_id  INT         REFERENCES accounts(account_id),
+  report_id   INT         REFERENCES reports(report_id),
+  amount      NUMERIC,
+  currency    VARCHAR(10),
+  PRIMARY KEY (corp_code, account_id, report_id)
+);

@@ -246,6 +246,23 @@ def run_batch_fetch():
                             except Exception as e:
                                 print(f"    -> 저장 오류: {e}")
                         else:
+                            if config.CREATE_EMPTY_FILE_ON_NO_DATA:
+                                # 데이터가 없어도 빈 파일 생성
+                                print("    -> 데이터 없음 (빈 파일 생성)")
+                                empty_df = pd.DataFrame([{
+                                    '회사명': corp_name,
+                                    '고유번호': corp_code,
+                                    'stock_code': stock_code,
+                                    'status': 'NO_DATA',
+                                    'message': '조회된 데이터가 없습니다',
+                                    'year': year,
+                                    'report_name': report_name
+                                }])
+                                empty_df.to_excel(output_filename, index=False, engine='openpyxl')
+                            else:
+                                print("    -> 데이터 없음 (파일 생성 안 함)")
+                    elif data.get('status') == '013':
+                        if config.CREATE_EMPTY_FILE_ON_NO_DATA:
                             # 데이터가 없어도 빈 파일 생성
                             print("    -> 데이터 없음 (빈 파일 생성)")
                             empty_df = pd.DataFrame([{
@@ -258,19 +275,8 @@ def run_batch_fetch():
                                 'report_name': report_name
                             }])
                             empty_df.to_excel(output_filename, index=False, engine='openpyxl')
-                    elif data.get('status') == '013':
-                        # 데이터가 없어도 빈 파일 생성
-                        print("    -> 데이터 없음 (빈 파일 생성)")
-                        empty_df = pd.DataFrame([{
-                            '회사명': corp_name,
-                            '고유번호': corp_code,
-                            'stock_code': stock_code,
-                            'status': 'NO_DATA',
-                            'message': '조회된 데이터가 없습니다',
-                            'year': year,
-                            'report_name': report_name
-                        }])
-                        empty_df.to_excel(output_filename, index=False, engine='openpyxl')
+                        else:
+                            print("    -> 데이터 없음 (파일 생성 안 함)")
                     else:
                         error_status = data.get('status', 'N/A')
                         error_message = data.get('message', 'N/A')

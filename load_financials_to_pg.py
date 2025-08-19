@@ -1,7 +1,8 @@
 # load_financials_to_pg.py
 import os, glob, re, itertools
 import pandas as pd
-from sqlalchemy import create_engine, text
+import psycopg2
+from psycopg2 import sql
 from dotenv import load_dotenv
 import zipfile
 import config
@@ -10,7 +11,7 @@ load_dotenv()  # PGHOST, PGPORT, PGUSER, PGPASSWORD, PGDATABASE
 
 # --- 수동 설정값 (환경변수 없을 때 fallback) ---
 db_config = {
-    "host": "127.0.0.1",
+    "host": "121.167.148.247",
     "port": 5432,
     "database": "david",
     "user": "inhyuk",
@@ -31,61 +32,73 @@ if not str(PGPORT_RAW).isdigit():
     raise ValueError(f"PGPORT must be an integer (got '{PGPORT_RAW}')")
 pg_port = int(PGPORT_RAW)
 
-PG_URI = (
-    f"postgresql+psycopg2://{PGUSER}:{PGPASSWORD}"
-    f"@{PGHOST}:{pg_port}/{PGDATABASE}?host={PGHOST}"
-)
+# PostgreSQL 연결 설정
+conn_params = {
+    "host": PGHOST,
+    "port": pg_port,
+    "database": PGDATABASE,
+    "user": PGUSER,
+    "password": PGPASSWORD
+}
 print(f"Connecting to PostgreSQL at {PGHOST}:{pg_port} as {PGUSER} …")
-engine = create_engine(PG_URI, isolation_level="AUTOCOMMIT")
 
 # ---------- 경로 ----------
 COMPANY_DIR = "dart_financial_data_by_company"
 file_paths = glob.glob(os.path.join(COMPANY_DIR, "*.xlsx"))
 
 # ---------- 쿼리 헬퍼 ----------
-def fetch_one(sql, **params):
-    with engine.connect() as conn:
-        return conn.execute(text(sql), params).scalar()
+def fetch_one(query, params=None):
+    conn = psycopg2.connect(**conn_params)
+    conn.autocommit = True
+    cur = conn.cursor()
+    cur.execute(query, params)
+    result = cur.fetchone()
+    cur.close()
+    conn.close()
+    return result[0] if result else None
 
 def upsert_company(corp_code, company_name, stock_code):
-    sql = """
+    query = """
     INSERT INTO opendart.companies(corp_code, company_name, stock_code)
-    VALUES (:corp, :name, :stock)
+    VALUES (%s, %s, %s)
     ON CONFLICT (corp_code) DO NOTHING;
     """
-    with engine.begin() as conn:
-        conn.execute(text(sql), {"corp": int(corp_code), "name": str(company_name), "stock": int(stock_code)})
+    conn = psycopg2.connect(**conn_params)
+    conn.autocommit = True
+    cur = conn.cursor()
+    cur.execute(query, (int(corp_code), str(company_name), int(stock_code)))
+    cur.close()
+    conn.close()
 
 def get_or_create_account(fs_nm, sj_nm, account_nm):
     sql_sel = """
     SELECT account_id FROM opendart.accounts
-    WHERE fs_nm=:fs AND sj_nm=:sj AND account_nm=:acc
+    WHERE fs_nm=%s AND sj_nm=%s AND account_nm=%s
     """
-    acc_id = fetch_one(sql_sel, fs=fs_nm, sj=sj_nm, acc=account_nm)
+    acc_id = fetch_one(sql_sel, (fs_nm, sj_nm, account_nm))
     if acc_id:
         return acc_id
     sql_ins = """
     INSERT INTO opendart.accounts(fs_nm, sj_nm, account_nm)
-    VALUES (:fs, :sj, :acc) RETURNING account_id
+    VALUES (%s, %s, %s) RETURNING account_id
     """
-    return fetch_one(sql_ins, fs=fs_nm, sj=sj_nm, acc=account_nm)
+    return fetch_one(sql_ins, (fs_nm, sj_nm, account_nm))
 
 def get_or_create_report(year, quarter, report_name):
     sql_upsert = """
     INSERT INTO opendart.reports(year, quarter, report_name)
-    VALUES (:yr, :qtr, :rname)
+    VALUES (%s, %s, %s)
     ON CONFLICT (year, quarter) DO UPDATE
         SET report_name = EXCLUDED.report_name
     RETURNING report_id
     """
-    return fetch_one(sql_upsert, yr=int(year), qtr=str(quarter),
-                     rname=str(report_name))
+    return fetch_one(sql_upsert, (int(year), str(quarter), str(report_name)))
 
 def upsert_fin_value(corp_code, acc_id, rep_id, amount, currency):
-    sql = """
+    query = """
     INSERT INTO opendart.fin_values
           (corp_code, account_id, report_id, amount, currency)
-    VALUES (:corp, :acc, :rep, :amt, :cur)
+    VALUES (%s, %s, %s, %s, %s)
     ON CONFLICT (corp_code, account_id, report_id) DO UPDATE
         SET amount = EXCLUDED.amount,
             currency = EXCLUDED.currency;
@@ -104,9 +117,12 @@ def upsert_fin_value(corp_code, acc_id, rep_id, amount, currency):
                 print(f"[경고] 숫자로 변환할 수 없는 값: '{amount_str}'")
                 amount_val = None
     
-    with engine.begin() as conn:
-        conn.execute(text(sql), {"corp": int(corp_code), "acc": int(acc_id),
-                                 "rep": int(rep_id), "amt": amount_val, "cur": str(currency)})
+    conn = psycopg2.connect(**conn_params)
+    conn.autocommit = True
+    cur = conn.cursor()
+    cur.execute(query, (int(corp_code), int(acc_id), int(rep_id), amount_val, str(currency)))
+    cur.close()
+    conn.close()
 
 # ---------- 기간 파싱 ----------
 Q_KOR_TO_STD = {"1분기": "1Q", "반기": "2Q", "3분기": "3Q", "사업보고서": "4Q"}
@@ -122,7 +138,8 @@ if config.TARGET_COMPANIES:
     for path in file_paths:
         fname = os.path.basename(path)
         # 파일명에서 회사명 추출 (회사명_고유번호.xlsx 형식)
-        if any(target in fname for target in config.TARGET_COMPANIES):
+        company_name = fname.split('_')[0] if '_' in fname else fname.replace('.xlsx', '')
+        if company_name in config.TARGET_COMPANIES:
             filtered_paths.append(path)
     file_paths = filtered_paths
     print(f"TARGET_COMPANIES 필터링: {len(file_paths)}개 파일 처리")

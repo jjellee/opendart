@@ -82,45 +82,6 @@ ACCOUNTS_URL = "https://opendart.fss.or.kr/api/fnlttSinglAcnt.json"
 #     print(f"    -> [저장] {period_prefix} 데이터가 '{company_file}'에 반영되었습니다.")
 
 
-# def get_corp_codes(api_key: str, force_refresh: bool = False) -> pd.DataFrame:
-#     """
-#     DART에 등록된 전체 회사 목록을 다운로드하여 DataFrame으로 반환합니다.
-#     상장된 회사(종목코드가 있는 회사)만 필터링합니다.
-#     """
-#     cache_file = "CORPCODE.xml"
-#     if not force_refresh and os.path.exists(cache_file):
-#         print(f"캐시 파일 '{cache_file}'을 사용합니다.")
-#         with open(cache_file, "r", encoding="utf-8") as f:
-#             xml_text = f.read()
-#     else:
-#         print("DART 서버에서 최신 회사 목록을 다운로드합니다...")
-#         params = {"crtfc_key": api_key}
-#         try:
-#             resp = requests.get(CORP_CODE_URL, params=params, timeout=60)
-#             resp.raise_for_status()  # HTTP 오류 발생 시 예외 발생
-#             with zipfile.ZipFile(io.BytesIO(resp.content)) as z:
-#                 xml_text = z.read("CORPCODE.xml").decode("utf-8")
-#             # 나중을 위해 캐시 파일 저장
-#             with open(cache_file, "w", encoding="utf-8") as f:
-#                 f.write(xml_text)
-#         except requests.exceptions.RequestException as e:
-#             print(f"회사 목록 다운로드 중 네트워크 오류 발생: {e}")
-#             return pd.DataFrame()
-
-#     # XML을 파싱하여 DataFrame으로 변환
-#     try:
-#         data = xmltodict.parse(xml_text)["result"]["list"]
-#         df = pd.DataFrame(data)
-#         # 종목코드가 있는 상장사만 필터링
-#         df_listed = df[df['stock_code'].notna()].copy()
-#         # 고유번호가 8자리가 아닐 경우 앞에 0을 채워줌
-#         df_listed['corp_code'] = df_listed['corp_code'].str.zfill(8)
-#         return df_listed
-#     except Exception as e:
-#         print(f"회사 목록 파싱 중 오류 발생: {e}")
-#         return pd.DataFrame()
-
-
 def run_batch_fetch():
     """
     2018년부터 2025년 1분기까지의 주요계정 정보를 분기별로 조회하고

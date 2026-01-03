@@ -1,5 +1,6 @@
 # load_financials_to_pg.py
 import os, glob, re, itertools
+import unicodedata
 import pandas as pd
 import psycopg2
 from psycopg2 import sql
@@ -134,12 +135,18 @@ def parse_period(col_prefix):
 
 # ---------- TARGET_COMPANIES 필터링 ----------
 if config.TARGET_COMPANIES:
+    target_companies = {
+        unicodedata.normalize("NFC", name.strip())
+        for name in config.TARGET_COMPANIES
+        if name and name.strip()
+    }
     filtered_paths = []
     for path in file_paths:
         fname = os.path.basename(path)
         # 파일명에서 회사명 추출 (회사명_고유번호.xlsx 형식)
         company_name = fname.split('_')[0] if '_' in fname else fname.replace('.xlsx', '')
-        if company_name in config.TARGET_COMPANIES:
+        company_name = unicodedata.normalize("NFC", company_name.strip())
+        if company_name in target_companies:
             filtered_paths.append(path)
     file_paths = filtered_paths
     print(f"TARGET_COMPANIES 필터링: {len(file_paths)}개 파일 처리")

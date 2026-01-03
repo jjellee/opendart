@@ -52,30 +52,33 @@ PERIOD_DIR = "dart_financial_data"
 OUTPUT_DIR_COMPANY = "dart_financial_data_by_company"
 
 def append_to_company_files():
+    print(f"[시작] merge_financials.py 실행")
+    print(f"[설정] START_YEAR: {config.START_YEAR}, START_QUARTER: {config.START_QUARTER}")
+    print(f"[설정] END_YEAR: {config.END_YEAR}, END_QUARTER: {config.END_QUARTER}")
+    print(f"[설정] TARGET_COMPANIES: {config.TARGET_COMPANIES}")
+
     # 회사별 폴더에서 파일들을 탐색: <회사폴더>/<YEAR>_<REPORTNAME>_major_accounts.xlsx
     files = []
-    
+
     # 기간 필터링을 위한 변수
     quarter_map = {'1분기': 1, '반기': 2, '3분기': 3, '사업보고서': 4}
     
     # dart_financial_data 폴더 내의 모든 회사 폴더를 탐색
-    if os.path.exists(PERIOD_DIR):
-        for company_folder in os.listdir(PERIOD_DIR):
-            company_path = os.path.join(PERIOD_DIR, company_folder)
+    if config.TARGET_COMPANIES:
+        # TARGET_COMPANIES가 지정된 경우 직접 경로 확인
+        for target_company in config.TARGET_COMPANIES:
+            company_path = os.path.join(PERIOD_DIR, target_company)
+            print(f"[확인] {company_path} 경로 확인 중...")
             if os.path.isdir(company_path):
-                # TARGET_COMPANIES 필터링
-                if config.TARGET_COMPANIES:
-                    # 폴더명에서 회사명 추출 (언더스코어로 구분된 회사명)
-                    company_name = company_folder.replace('_', '')
-                    # TARGET_COMPANIES에 있는 회사만 처리
-                    if not any(target.replace(' ', '') in company_name for target in config.TARGET_COMPANIES):
-                        continue
-                
+                print(f"[처리] {target_company} 폴더 발견")
+
                 # 각 회사 폴더 내의 엑셀 파일들을 찾기
                 company_files = glob.glob(os.path.join(company_path, "*_major_accounts.xlsx"))
                 # Excel 임시 파일 (~$로 시작하는 파일) 제외
                 company_files = [f for f in company_files if not os.path.basename(f).startswith('~$')]
-                
+
+                print(f"[파일] {len(company_files)}개의 파일 발견")
+
                 # 기간 필터링
                 filtered_files = []
                 for f in company_files:
@@ -86,24 +89,27 @@ def append_to_company_files():
                             year = int(parts[0])
                             report_name = parts[1]
                             quarter_num = quarter_map.get(report_name, 0)
-                            
+
                             # 시작 기간 체크
                             if year < config.START_YEAR:
                                 continue
                             if year == config.START_YEAR and quarter_num < config.START_QUARTER:
                                 continue
-                            
+
                             # 종료 기간 체크
                             if year > config.END_YEAR:
                                 continue
                             if year == config.END_YEAR and quarter_num > config.END_QUARTER:
                                 continue
-                            
+
                             filtered_files.append(f)
                         except ValueError:
                             continue
-                
+
+                print(f"[필터링] {len(filtered_files)}개의 파일이 기간 조건에 맞음")
                 files.extend(filtered_files)
+            else:
+                print(f"[경고] {company_path} 폴더를 찾을 수 없음")
     
     # 사업보고서를 마지막에 처리하도록 정렬
     annual_reports = [f for f in files if '_사업보고서_' in f]

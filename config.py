@@ -1,8 +1,8 @@
 API_KEY = "9b00caeeb9f0b62b15143d28d956a221fa2f8b3d"
 
 # 데이터 수집 기간 설정
-START_YEAR = 2022
-START_QUARTER = 3  # 1,2,3,4분기
+START_YEAR = 2025
+START_QUARTER = 2  # 1,2,3,4분기
 END_YEAR = 2025
 END_QUARTER = 3    # 1,2,3,4분기
 
@@ -23,7 +23,7 @@ TARGET_COMPANIES = ['SK하이닉스', '네패스', '고영', '피에스케이홀
                     '인텔리안테크', '케이티앤지', '하이즈항공', '스마트레이더시스템', 'SNT에너지', '한텍'
 ]
 '''
-TARGET_COMPANIES = [ 'HPSP']
+TARGET_COMPANIES = ['에스티팜']
 
 
 # 데이터가 없는 경우 빈 파일 생성 여부 설정

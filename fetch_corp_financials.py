@@ -22,7 +22,6 @@ OUTPUT_DIR = "dart_financial_data"
 CORP_CODES_FILE = "corp_codes_전체.xlsx"
 
 # --- API 정보 ---
-CORP_CODE_URL = "https://opendart.fss.or.kr/api/corpCode.xml"
 ACCOUNTS_URL = "https://opendart.fss.or.kr/api/fnlttSinglAcnt.json"
 
 
